@@ -1,0 +1,72 @@
+name: Day 15 - First CI
+
+on:
+  push:
+    branches:
+      - main
+      - feature/day15-github-actions
+
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Day 13
+
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: day13
+
+    env:
+      POSTGRES_PASSWORD: ci-only-not-a-secret
+
+    steps:
+      # Step 1: Retrieve repository code
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Step 2: Prepare Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # Step 3: Inspect the runner
+      - name: Show execution environment
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: $GITHUB_REF"
+          echo "Commit: $GITHUB_SHA"
+          python --version
+          docker --version
+          docker compose version
+
+      # Step 4: Verify project files
+      - name: Verify project structure
+        run: |
+          test -f backend/app.py
+          test -f backend/requirements.txt
+          test -f backend/Dockerfile
+          test -f frontend/Dockerfile
+          test -f frontend/nginx.conf
+          test -f compose.yaml
+
+          echo "Project structure verified"
+
+      # Step 5: Check Python syntax
+      - name: Check Python syntax
+        run: |
+          python -m compileall -q backend/
+
+      # Step 6: Validate Compose configuration
+      - name: Validate Compose configuration
+        run: |
+          docker compose config -q
+
+          echo "Compose configuration is valid"

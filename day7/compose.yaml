@@ -1,0 +1,77 @@
+services:
+  app:
+    build: ./app
+
+    ports:
+      - "${APP_PORT:-8000}:5000"
+
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    networks:
+      - frontend-net
+      - backend-net
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=2)"
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+
+    command: ["redis-server", "--appendonly", "yes"]
+
+    volumes:
+      - redis-data:/data
+
+    networks:
+      - backend-net
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  redis-debug:
+    image: redis:7-alpine
+    profiles: ["debug"]
+    entrypoint: ["redis-cli"]
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    networks:
+      - backend-net
+
+  frontend-probe:
+    image: alpine:3.22
+    profiles: ["debug"]
+    command: ["sleep", "3600"]
+
+    networks:
+      - frontend-net
+
+networks:
+  frontend-net:
+  backend-net:
+
+volumes:
+  redis-data:

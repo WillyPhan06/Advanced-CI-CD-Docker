@@ -1,0 +1,44 @@
+
+services:
+  app:
+    image: swarm-day10:hardened
+    build: ./app
+    ports:
+      - "${APP_PORT:-8000}:5000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    networks:
+      - app-net
+    depends_on:
+      - redis
+    secrets:
+      - demo_api_key
+        
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+    read_only: true
+
+    tmpfs:
+      - /tmp
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-net
+
+networks:
+  app-net:
+
+volumes:
+  redis-data:
+
+secrets:
+  demo_api_key:
+    file: ./secrets/demo_api_key.txt

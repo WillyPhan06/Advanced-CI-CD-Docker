@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SWARM Task Manager</title>
+
+    <style>
+        body {
+            max-width: 650px;
+            margin: 60px auto;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+        }
+
+        main {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+        }
+
+        input {
+            padding: 10px;
+            width: 70%;
+        }
+
+        button {
+            padding: 10px;
+            cursor: pointer;
+        }
+
+        li {
+            margin: 12px 0;
+        }
+
+        #status {
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+<main>
+    <h1>SWARM Task Manager</h1>
+
+    <form id="task-form">
+        <input
+            id="task-title"
+            type="text"
+            placeholder="Enter a task..."
+            required
+        >
+
+        <button type="submit">Add</button>
+    </form>
+
+    <p id="status">Loading tasks...</p>
+
+    <ul id="task-list"></ul>
+</main>
+
+<script>
+const form = document.getElementById("task-form");
+const input = document.getElementById("task-title");
+const list = document.getElementById("task-list");
+const statusText = document.getElementById("status");
+
+async function loadTasks() {
+    try {
+        const response = await fetch("/api/tasks");
+
+        if (!response.ok) {
+            throw new Error("Failed to load tasks");
+        }
+
+        const tasks = await response.json();
+
+        list.replaceChildren();
+
+        tasks.forEach(task => {
+            const item = document.createElement("li");
+            item.textContent = `${task.title} (ID: ${task.id})`;
+            list.appendChild(item);
+        });
+
+        statusText.textContent = `${tasks.length} tasks loaded.`;
+
+    } catch (error) {
+        statusText.textContent = error.message;
+    }
+}
+
+form.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    const title = input.value.trim();
+
+    if (!title) return;
+
+    try {
+        const response = await fetch("/api/tasks", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ title })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || "Failed to create task");
+        }
+
+        input.value = "";
+
+        await loadTasks();
+
+    } catch (error) {
+        statusText.textContent = error.message;
+    }
+});
+
+loadTasks();
+</script>
+
+</body>
+</html>
