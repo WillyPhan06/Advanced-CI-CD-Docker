@@ -37,6 +37,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Step 2.5: Inspect GitHub event
+      - name: Inspect GitHub event
+        run: |
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Event: $GITHUB_EVENT_NAME"
+          echo "Runner OS: $RUNNER_OS"
+          echo "Runner architecture: $RUNNER_ARCH"
+
       # Step 3: Inspect the runner
       - name: Show execution environment
         run: |
@@ -70,3 +78,10 @@ jobs:
           docker compose config -q
 
           echo "Compose configuration is valid"
+
+      # Step 7: Demonstrate sequential execution
+      - name: Demonstrate sequential execution
+        run: |
+          echo "First command"
+          echo "Second command"
+          echo "Third command"
