@@ -1,10 +1,8 @@
-name: Day 15 - First CI
+
+name: CI - Validate and Build Docker Images
 
 on:
   push:
-    branches:
-      - main
-      - feature/day15-github-actions
 
   pull_request:
     branches:
@@ -14,10 +12,15 @@ permissions:
   contents: read
 
 jobs:
+  # --------------------------------
+  # Job 1: Validate the application
+  # --------------------------------
   validate:
-    name: Validate Day 13
-
+    name: Validate application
     runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
 
     defaults:
       run:
@@ -27,35 +30,14 @@ jobs:
       POSTGRES_PASSWORD: ci-only-not-a-secret
 
     steps:
-      # Step 1: Retrieve repository code
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v6
 
-      # Step 2: Prepare Python environment
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
-      # Step 2.5: Inspect GitHub event
-      - name: Inspect GitHub event
-        run: |
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Event: $GITHUB_EVENT_NAME"
-          echo "Runner OS: $RUNNER_OS"
-          echo "Runner architecture: $RUNNER_ARCH"
-
-      # Step 3: Inspect the runner
-      - name: Show execution environment
-        run: |
-          echo "Event: ${{ github.event_name }}"
-          echo "Ref: $GITHUB_REF"
-          echo "Commit: $GITHUB_SHA"
-          python --version
-          docker --version
-          docker compose version
-
-      # Step 4: Verify project files
       - name: Verify project structure
         run: |
           test -f backend/app.py
@@ -65,23 +47,96 @@ jobs:
           test -f frontend/nginx.conf
           test -f compose.yaml
 
-          echo "Project structure verified"
-
-      # Step 5: Check Python syntax
       - name: Check Python syntax
         run: |
           python -m compileall -q backend/
 
-      # Step 6: Validate Compose configuration
       - name: Validate Compose configuration
         run: |
           docker compose config -q
 
-          echo "Compose configuration is valid"
+  # --------------------------------
+  # Job 2: Build and publish images
+  # --------------------------------
+  build-images:
+    name: Build Docker Images
+    needs: validate
+    runs-on: ubuntu-24.04
 
-      # Step 7: Demonstrate sequential execution
-      - name: Demonstrate sequential execution
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Generate lowercase GHCR image names
+      - name: Define image names
+        id: image-names
+        shell: bash
         run: |
-          echo "First command"
-          echo "Second command"
-          echo "Third command"
+          REPO="${GITHUB_REPOSITORY,,}"
+
+          echo "frontend=ghcr.io/${REPO}-frontend" >> "$GITHUB_OUTPUT"
+          echo "backend=ghcr.io/${REPO}-backend" >> "$GITHUB_OUTPUT"
+
+      # Generate frontend tags and labels
+      - name: Generate frontend metadata
+        id: frontend-meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image-names.outputs.frontend }}
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Generate backend tags and labels
+      - name: Generate backend metadata
+        id: backend-meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image-names.outputs.backend }}
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Authenticate only on pushes to main
+      - name: Login to GHCR
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build frontend image
+      - name: Build frontend image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./day13/frontend
+          file: ./day13/frontend/Dockerfile
+          push: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+          tags: ${{ steps.frontend-meta.outputs.tags }}
+          labels: ${{ steps.frontend-meta.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      # Build backend image
+      - name: Build backend image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./day13/backend
+          file: ./day13/backend/Dockerfile
+          push: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+          tags: ${{ steps.backend-meta.outputs.tags }}
+          labels: ${{ steps.backend-meta.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
