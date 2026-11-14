@@ -3,12 +3,10 @@ name: CI - Multi-stage Pipeline
 
 on:
   push:
-    branches:
-      - main
 
   pull_request:
     branches:
-      - main
+      - feature/day15-github-actions
 
 permissions:
   contents: read
