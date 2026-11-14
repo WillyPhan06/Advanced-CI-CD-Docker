@@ -92,7 +92,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest -v tests/test_api_unit.py
+          python -m pytest -v tests/test_api_unit.py
 
 
   # ==================================
@@ -150,7 +150,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          pytest -v tests/test_api_integration.py
+          python -m pytest -v tests/test_api_integration.py
 
 
   # ==================================
