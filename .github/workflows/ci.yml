@@ -253,7 +253,7 @@ jobs:
       - name: Publish frontend image
         uses: docker/build-push-action@v7
         with:
-          working-directory: ./day17/frontend
+          context: ./day17/frontend
           file: ./day17/frontend/Dockerfile
           push: true
           tags: |
@@ -266,7 +266,7 @@ jobs:
       - name: Publish backend image
         uses: docker/build-push-action@v7
         with:
-          working-directory: ./day17/backend
+          context: ./day17/backend
           file: ./day17/backend/Dockerfile
           push: true
           tags: |
