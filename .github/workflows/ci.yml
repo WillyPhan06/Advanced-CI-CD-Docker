@@ -73,7 +73,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: day17
+        working-directory: day17/backend
 
     steps:
       - name: Checkout repository
