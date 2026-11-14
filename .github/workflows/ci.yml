@@ -1,8 +1,10 @@
 
-name: CI - Validate and Build Docker Images
+name: CI - Multi-stage Pipeline
 
 on:
   push:
+    branches:
+      - main
 
   pull_request:
     branches:
@@ -12,26 +14,25 @@ permissions:
   contents: read
 
 jobs:
-  # --------------------------------
-  # Job 1: Validate the application
-  # --------------------------------
+
+  # ==================================
+  # STAGE 1: VALIDATION
+  # ==================================
+
   validate:
-    name: Validate application
+    name: Validate
     runs-on: ubuntu-24.04
 
-    permissions:
-      contents: read
+    env:
+      POSTGRES_PASSWORD: ci-only-not-a-secret
 
     defaults:
       run:
         working-directory: day17
 
-    env:
-      POSTGRES_PASSWORD: ci-only-not-a-secret
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -42,6 +43,7 @@ jobs:
         run: |
           test -f backend/app.py
           test -f backend/requirements.txt
+          test -f backend/requirements-dev.txt
           test -f backend/Dockerfile
           test -f frontend/Dockerfile
           test -f frontend/nginx.conf
@@ -51,17 +53,59 @@ jobs:
         run: |
           python -m compileall -q backend/
 
-      - name: Validate Compose configuration
+      - name: Validate Compose
         run: |
           docker compose config -q
 
-  
-  test:
-    name: Unit and Integration Tests
+
+  # ==================================
+  # STAGE 2A: UNIT TESTS
+  # ==================================
+
+  unit-tests:
+    name: Unit tests (Python ${{ matrix.python-version }})
     needs: validate
     runs-on: ubuntu-24.04
 
-    # Temporary PostgreSQL environment for this job
+    strategy:
+      fail-fast: true
+      max-parallel: 2
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    defaults:
+      run:
+        working-directory: day17
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: day17/backend/requirements-dev.txt
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: |
+          pytest -v tests/test_api_unit.py
+
+
+  # ==================================
+  # STAGE 2B: INTEGRATION TESTS
+  # ==================================
+
+  integration-tests:
+    name: Integration tests
+    needs: validate
+    runs-on: ubuntu-24.04
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -80,7 +124,6 @@ jobs:
           --health-timeout 3s
           --health-retries 10
 
-    # Environment variables consumed by backend/app.py
     env:
       DB_HOST: 127.0.0.1
       DB_PORT: "5432"
@@ -103,96 +146,133 @@ jobs:
           cache: pip
           cache-dependency-path: day17/backend/requirements-dev.txt
 
-      - name: Install development dependencies
+      - name: Install test dependencies
         run: |
           python -m pip install -r requirements-dev.txt
 
-      - name: Run unit and integration tests
+      - name: Run integration tests
         run: |
-          python -m pytest -v --junitxml=pytest-report.xml
+          pytest -v tests/test_api_integration.py
 
-  # --------------------------------
-  # Job 2: Build and publish images
-  # --------------------------------
-  build-images:
-    name: Build Docker Images
-    needs: [validate, test]
+
+  # ==================================
+  # STAGE 3A: FRONTEND BUILD
+  # ==================================
+
+  build-frontend:
+    name: Build frontend image
+    needs: [unit-tests, integration-tests]
     runs-on: ubuntu-24.04
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./day17/frontend
+          file: ./day17/frontend/Dockerfile
+          push: false
+          tags: local/day17-frontend:ci
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+
+  # ==================================
+  # STAGE 3B: BACKEND BUILD
+  # ==================================
+
+  build-backend:
+    name: Build backend image
+    needs: [unit-tests, integration-tests]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build backend image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./day17/backend
+          file: ./day17/backend/Dockerfile
+          push: false
+          tags: local/day17-backend:ci
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+
+  # ==================================
+  # STAGE 4: PUBLISH
+  # ==================================
+
+  publish-images:
+    name: Publish images to GHCR
+
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+
+    needs: [build-frontend, build-backend]
+    runs-on: ubuntu-24.04
+
+    # Only the publishing job receives write permission.
     permissions:
       contents: read
       packages: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # Generate lowercase GHCR image names
       - name: Define image names
-        id: image-names
+        id: names
         shell: bash
         run: |
-          REPO="${GITHUB_REPOSITORY,,}"
+          REPO=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
 
           echo "frontend=ghcr.io/${REPO}-frontend" >> "$GITHUB_OUTPUT"
           echo "backend=ghcr.io/${REPO}-backend" >> "$GITHUB_OUTPUT"
 
-      # Generate frontend tags and labels
-      - name: Generate frontend metadata
-        id: frontend-meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ steps.image-names.outputs.frontend }}
-          tags: |
-            type=sha
-            type=ref,event=branch
-            type=ref,event=pr
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      # Generate backend tags and labels
-      - name: Generate backend metadata
-        id: backend-meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ steps.image-names.outputs.backend }}
-          tags: |
-            type=sha
-            type=ref,event=branch
-            type=ref,event=pr
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      # Authenticate only on pushes to main
       - name: Login to GHCR
-        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Build frontend image
-      - name: Build frontend image
+      - name: Publish frontend image
         uses: docker/build-push-action@v7
         with:
-          context: ./day17/frontend
+          working-directory: ./day17/frontend
           file: ./day17/frontend/Dockerfile
-          push: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-          tags: ${{ steps.frontend-meta.outputs.tags }}
-          labels: ${{ steps.frontend-meta.outputs.labels }}
+          push: true
+          tags: |
+            ${{ steps.names.outputs.frontend }}:sha-${{ github.sha }}
+            ${{ steps.names.outputs.frontend }}:main
+            ${{ steps.names.outputs.frontend }}:latest
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-      # Build backend image
-      - name: Build backend image
+      - name: Publish backend image
         uses: docker/build-push-action@v7
         with:
-          context: ./day17/backend
+          working-directory: ./day17/backend
           file: ./day17/backend/Dockerfile
-          push: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-          tags: ${{ steps.backend-meta.outputs.tags }}
-          labels: ${{ steps.backend-meta.outputs.labels }}
+          push: true
+          tags: |
+            ${{ steps.names.outputs.backend }}:sha-${{ github.sha }}
+            ${{ steps.names.outputs.backend }}:main
+            ${{ steps.names.outputs.backend }}:latest
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
