@@ -300,122 +300,122 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
-    collect-test-reports:
-      name: Collect test reports
+  collect-test-reports:
+    name: Collect test reports
 
-      needs:
-        - validate
-        - unit-tests
-        - integration-tests
+    needs:
+      - validate
+      - unit-tests
+      - integration-tests
 
-      if: ${{ always() && !cancelled() && needs.validate.result == 'success' }}
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' }}
 
-      runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04
 
-      steps:
-        - name: Download test reports
-          uses: actions/download-artifact@v8
-          with:
-            pattern: test-results-*
-            path: downloaded-reports
-            merge-multiple: true
+    steps:
+      - name: Download test reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-results-*
+          path: downloaded-reports
+          merge-multiple: true
 
-        - name: Inspect downloaded reports
-          run: |
-            echo "Downloaded files:"
-            find downloaded-reports -type f
+      - name: Inspect downloaded reports
+        run: |
+          echo "Downloaded files:"
+          find downloaded-reports -type f
 
-            echo "Report directory:"
-            ls -lh downloaded-reports
+          echo "Report directory:"
+          ls -lh downloaded-reports
 
-        - name: Generate combined test summary
-          env:
-            UNIT_RESULT: ${{ needs.unit-tests.result }}
-            INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+      - name: Generate combined test summary
+        env:
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
 
-          run: |
-            python3 - <<'PY'
-            import os
-            import xml.etree.ElementTree as ET
-            from pathlib import Path
+        run: |
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
 
-            reports = sorted(
-                Path("downloaded-reports").glob("*.xml")
-            )
+          reports = sorted(
+              Path("downloaded-reports").glob("*.xml")
+          )
 
-            if not reports:
-                raise SystemExit("No JUnit reports were downloaded")
+          if not reports:
+              raise SystemExit("No JUnit reports were downloaded")
 
-            totals = {
-                "tests": 0,
-                "failures": 0,
-                "errors": 0,
-                "skipped": 0,
-            }
+          totals = {
+              "tests": 0,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+          }
 
-            lines = [
-                "# CI Test Summary",
-                "",
-                f"- Commit: `{os.environ['GITHUB_SHA']}`",
-                f"- Unit-test job: **{os.environ['UNIT_RESULT']}**",
-                f"- Integration-test job: **{os.environ['INTEGRATION_RESULT']}**",
-                "",
-                "| Report | Tests | Failures | Errors | Skipped |",
-                "|---|---:|---:|---:|---:|",
-            ]
+          lines = [
+              "# CI Test Summary",
+              "",
+              f"- Commit: `{os.environ['GITHUB_SHA']}`",
+              f"- Unit-test job: **{os.environ['UNIT_RESULT']}**",
+              f"- Integration-test job: **{os.environ['INTEGRATION_RESULT']}**",
+              "",
+              "| Report | Tests | Failures | Errors | Skipped |",
+              "|---|---:|---:|---:|---:|",
+          ]
 
-            for report in reports:
-                root = ET.parse(report).getroot()
+          for report in reports:
+              root = ET.parse(report).getroot()
 
-                suites = list(root.iter("testsuite"))
+              suites = list(root.iter("testsuite"))
 
-                counts = {
-                    key: sum(
-                        int(suite.attrib.get(key, "0"))
-                        for suite in suites
-                    )
-                    for key in totals
-                }
+              counts = {
+                  key: sum(
+                      int(suite.attrib.get(key, "0"))
+                      for suite in suites
+                  )
+                  for key in totals
+              }
 
-                for key, value in counts.items():
-                    totals[key] += value
+              for key, value in counts.items():
+                  totals[key] += value
 
-                lines.append(
-                    f"| {report.name} | "
-                    f"{counts['tests']} | "
-                    f"{counts['failures']} | "
-                    f"{counts['errors']} | "
-                    f"{counts['skipped']} |"
-                )
+              lines.append(
+                  f"| {report.name} | "
+                  f"{counts['tests']} | "
+                  f"{counts['failures']} | "
+                  f"{counts['errors']} | "
+                  f"{counts['skipped']} |"
+              )
 
-            lines.extend([
-                "",
-                "## Combined totals",
-                "",
-                f"- Tests: {totals['tests']}",
-                f"- Failures: {totals['failures']}",
-                f"- Errors: {totals['errors']}",
-                f"- Skipped: {totals['skipped']}",
-            ])
+          lines.extend([
+              "",
+              "## Combined totals",
+              "",
+              f"- Tests: {totals['tests']}",
+              f"- Failures: {totals['failures']}",
+              f"- Errors: {totals['errors']}",
+              f"- Skipped: {totals['skipped']}",
+          ])
 
-            summary = "\n".join(lines) + "\n"
+          summary = "\n".join(lines) + "\n"
 
-            Path("test-summary.md").write_text(summary)
+          Path("test-summary.md").write_text(summary)
 
-            with open(
-                os.environ["GITHUB_STEP_SUMMARY"],
-                "a",
-                encoding="utf-8"
-            ) as file:
-                file.write(summary)
+          with open(
+              os.environ["GITHUB_STEP_SUMMARY"],
+              "a",
+              encoding="utf-8"
+          ) as file:
+              file.write(summary)
 
-            print(summary)
-            PY
+          print(summary)
+          PY
 
-        - name: Upload combined test summary
-          uses: actions/upload-artifact@v7
-          with:
-            name: ci-test-summary
-            path: test-summary.md
-            retention-days: 7
-            if-no-files-found: error
+      - name: Upload combined test summary
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-test-summary
+          path: test-summary.md
+          retention-days: 7
+          if-no-files-found: error
