@@ -177,6 +177,36 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  security-checks:
+    name: Dependency and SAST checks
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit bandit
+
+      - name: Audit Python dependencies
+        run: |
+          pip-audit \
+            -r day17/backend/requirements-dev.txt
+
+      - name: Run Python SAST
+        run: |
+          bandit -r day17/backend -ll
+
   secrets-scan:
     name: Secret Scanning
     runs-on: ubuntu-24.04
